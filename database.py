@@ -43,6 +43,19 @@ def inicializar_db():
             FOREIGN KEY (proyecto_id) REFERENCES proyectos(id)
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS defectos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            numero INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            encontrado TEXT NOT NULL,
+            removido TEXT NOT NULL,
+            tiempo_de_compostura REAL NOT NULL,
+            defecto_arreglado BOOLEAN NOT NULL,
+            descripcion TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 

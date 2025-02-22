@@ -6,6 +6,7 @@ from database import *
 from graficos import mostrar_grafica
 
 from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import landscape
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
@@ -28,8 +29,8 @@ alerta_mostrada = False
 modo_rapido = False
 
 ACTIVIDADES_PREDEFINIDAS = [
-    "Análisis", "Planificación", "Codificación", 
-    "Revisión de código", "Test", "Evaluación del código", "Lanzamiento", "Otra..."
+    "Planificación", "Diseño", 
+    "Código", "Compilación", "Pruebas", "Post Mórtem", "Otra..."
 ]
 
 def actualizar_proyectos():
@@ -136,6 +137,7 @@ def iniciar():
     btn_iniciar.config(state=tk.DISABLED)
     btn_pausar.config(state=tk.NORMAL)
     btn_parar.config(state=tk.NORMAL)
+    btn_defecto.config(state=tk.NORMAL)  # Habilitar el botón de defecto
     combo_actividades.config(state=tk.DISABLED)  # Deshabilitar la selección de actividad
 
     # Deshabilitar botones adicionales
@@ -224,6 +226,7 @@ def parar():
     btn_iniciar.config(state=tk.NORMAL)
     btn_pausar.config(state=tk.DISABLED, text="Pausar")
     btn_parar.config(state=tk.DISABLED)
+    btn_defecto.config(state=tk.DISABLED)  # Deshabilitar el botón de defecto
     combo_actividades.config(state=tk.NORMAL)  # Habilitar la selección de actividad
 
     # Habilitar botones adicionales
@@ -274,7 +277,46 @@ def mostrar_tabla():
 
     tree.pack(expand=True, fill='both')
 
-def generar_pdf(proyecto_id, proyecto_nombre):
+def mostrar_tabla_defectos():
+    if not proyecto_actual:
+        messagebox.showwarning("Proyecto", "Selecciona un proyecto primero.")
+        return
+
+    proyecto_id = obtener_id_proyecto(proyecto_actual)
+    defectos = obtener_defectos_proyecto(proyecto_id)
+
+    if not defectos:
+        messagebox.showinfo("Información", "No hay defectos registrados en este proyecto.")
+        return
+
+    ventana_tabla_defectos = tk.Toplevel(root)
+    ventana_tabla_defectos.title(f"Defectos de {proyecto_actual}")
+
+    cols = ("Fecha", "Número", "Tipo", "Encontrado", "Removido", "Tiempo de Compostura", "Defecto Arreglado", "Descripción")
+    tree = ttk.Treeview(ventana_tabla_defectos, columns=cols, show='headings')
+
+    for col in cols:
+        tree.heading(col, text=col)
+        tree.column(col, minwidth=0, width=100)
+
+    for defecto in defectos:
+        tree.insert("", "end", values=defecto)
+
+    tree.pack(expand=True, fill='both')
+
+def obtener_defectos_proyecto(proyecto_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT fecha, numero, tipo, encontrado, removido, tiempo_de_compostura, defecto_arreglado, descripcion 
+        FROM defectos 
+        WHERE proyecto_id = ?
+    """, (proyecto_id,))
+    defectos = cursor.fetchall()
+    conn.close()
+    return defectos
+
+def generar_pdf(proyecto_id, proyecto_nombre, alumno, instructor):
     actividades = obtener_actividades_proyecto(proyecto_id)
     
     if not actividades:
@@ -293,6 +335,10 @@ def generar_pdf(proyecto_id, proyecto_nombre):
     styles = getSampleStyleSheet()
     title = f"Proyecto: {proyecto_nombre}"
     elements.append(Paragraph(title, styles['Title']))
+
+    # Alumno e Instructor con más espacio en blanco
+    alumno_instructor_text = f"Alumno: {alumno} {' ' * 20} Instructor: {instructor}"
+    elements.append(Paragraph(alumno_instructor_text, styles['Normal']))
 
     # Fecha de inicio
     fecha_inicio_text = f"Fecha de Inicio: {fecha_inicio}"
@@ -341,16 +387,15 @@ def generar_pdf(proyecto_id, proyecto_nombre):
 
     elements.append(table)
 
-    # Calcular porcentajes
-    total_tiempo = total_duracion + total_interrupcion
-    porcentaje_activo = (total_duracion / total_tiempo) * 100 if total_tiempo > 0 else 0
-    porcentaje_inactivo = (total_interrupcion / total_tiempo) * 100 if total_tiempo > 0 else 0
+    # Calcular tiempos en minutos
+    tiempo_activo_minutos = total_duracion
+    tiempo_inactivo_minutos = total_interrupcion
 
-    # Añadir textos de porcentajes
+    # Añadir textos de tiempos en minutos
     elements.append(Spacer(1, 12))
-    texto_activo = f"Tiempo Activo: {porcentaje_activo:.2f}%"
+    texto_activo = f"Tiempo Activo: {tiempo_activo_minutos:.2f} minutos"
     elements.append(Paragraph(texto_activo, styles['Normal']))
-    texto_inactivo = f"Tiempo Muerto: {porcentaje_inactivo:.2f}%"
+    texto_inactivo = f"Tiempo Muerto: {tiempo_inactivo_minutos:.2f} minutos"
     elements.append(Paragraph(texto_inactivo, styles['Normal']))
 
     # Guardar la gráfica como imagen
@@ -373,8 +418,137 @@ def generar_reporte_pdf():
         messagebox.showwarning("Proyecto", "Selecciona un proyecto primero.")
         return
 
-    proyecto_id = obtener_id_proyecto(proyecto_actual)
-    generar_pdf(proyecto_id, proyecto_actual)
+    def guardar_datos():
+        alumno = entry_alumno.get().strip()
+        instructor = entry_instructor.get().strip()
+        if not alumno or not instructor:
+            messagebox.showwarning("Campos vacíos", "Por favor, rellena ambos campos.")
+            return
+        ventana_datos.destroy()
+        proyecto_id = obtener_id_proyecto(proyecto_actual)
+        generar_pdf(proyecto_id, proyecto_actual, alumno, instructor)
+
+    ventana_datos = tk.Toplevel(root)
+    ventana_datos.title("Datos del Reporte")
+
+    tk.Label(ventana_datos, text="Alumno:").grid(row=0, column=0, padx=10, pady=5)
+    entry_alumno = tk.Entry(ventana_datos)
+    entry_alumno.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(ventana_datos, text="Instructor:").grid(row=1, column=0, padx=10, pady=5)
+    entry_instructor = tk.Entry(ventana_datos)
+    entry_instructor.grid(row=1, column=1, padx=10, pady=5)
+
+    btn_guardar = tk.Button(ventana_datos, text="Generar PDF", command=guardar_datos)
+    btn_guardar.grid(row=2, column=0, columnspan=2, pady=10)
+
+def generar_pdf_defectos(proyecto_id, proyecto_nombre, alumno, instructor):
+    defectos = obtener_defectos_proyecto(proyecto_id)
+    
+    if not defectos:
+        messagebox.showinfo("Información", "No hay defectos registrados en este proyecto.")
+        return
+
+    archivo_pdf = f"{proyecto_nombre}_defectos.pdf"
+    doc = SimpleDocTemplate(archivo_pdf, pagesize=landscape(letter))
+    elements = []
+
+    # Datos del proyecto
+    fecha_inicio = defectos[0][0] if defectos else "N/A"
+    fecha_descarga = datetime.now().strftime("%Y-%m-%d")
+
+    # Título del proyecto
+    styles = getSampleStyleSheet()
+    title = f"Proyecto: {proyecto_nombre} - Defectos"
+    elements.append(Paragraph(title, styles['Title']))
+
+    # Alumno e Instructor con más espacio en blanco
+    alumno_instructor_text = f"Alumno: {alumno} {' ' * 20} Instructor: {instructor}"
+    elements.append(Paragraph(alumno_instructor_text, styles['Normal']))
+
+    # Fecha de inicio
+    fecha_inicio_text = f"Fecha de Inicio: {fecha_inicio}"
+    elements.append(Paragraph(fecha_inicio_text, styles['Normal']))
+
+    # Fecha de descarga del PDF
+    fecha_descarga_text = f"Fecha de Descarga: {fecha_descarga}"
+    elements.append(Paragraph(fecha_descarga_text, styles['Normal']))
+
+    # Espacio antes de la tabla
+    elements.append(Spacer(1, 12))
+
+    # Encabezados de la tabla
+    data = [["Fecha", "Número", "Tipo", "Encontrado", "Removido", "Tiempo de Compostura", "Defecto Arreglado", "Descripción"]]
+
+    # Datos de los defectos
+    total_tiempo_compostura = 0
+    for defecto in defectos:
+        fecha, numero, tipo, encontrado, removido, tiempo_de_compostura, defecto_arreglado, descripcion = defecto
+        tiempo_de_compostura = tiempo_de_compostura if tiempo_de_compostura is not None else 0
+        total_tiempo_compostura += tiempo_de_compostura
+        defecto_arreglado_text = "Sí" if int(defecto_arreglado) == 1 else "No"
+        data.append([
+            str(fecha) if fecha else "",
+            str(numero) if numero else "",
+            str(tipo) if tipo else "",
+            str(encontrado) if encontrado else "",
+            str(removido) if removido else "",
+            str(tiempo_de_compostura) if tiempo_de_compostura else "",
+            defecto_arreglado_text,
+            str(descripcion) if descripcion else ""
+        ])
+
+    # Crear la tabla
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+
+    elements.append(table)
+
+    # Añadir texto de tiempo total de compostura
+    elements.append(Spacer(1, 12))
+    texto_tiempo_compostura = f"Tiempo Total de Compostura: {total_tiempo_compostura:.2f} minutos"
+    elements.append(Paragraph(texto_tiempo_compostura, styles['Normal']))
+
+    # Construir el PDF
+    doc.build(elements)
+    messagebox.showinfo("PDF Generado", f"El PDF de defectos ha sido generado: {archivo_pdf}")
+
+def generar_reporte_pdf_defectos():
+    if not proyecto_actual:
+        messagebox.showwarning("Proyecto", "Selecciona un proyecto primero.")
+        return
+
+    def guardar_datos_defectos():
+        alumno = entry_alumno.get().strip()
+        instructor = entry_instructor.get().strip()
+        if not alumno or not instructor:
+            messagebox.showwarning("Campos vacíos", "Por favor, rellena ambos campos.")
+            return
+        ventana_datos.destroy()
+        proyecto_id = obtener_id_proyecto(proyecto_actual)
+        generar_pdf_defectos(proyecto_id, proyecto_actual, alumno, instructor)
+
+    ventana_datos = tk.Toplevel(root)
+    ventana_datos.title("Datos del Reporte de Defectos")
+
+    tk.Label(ventana_datos, text="Alumno:").grid(row=0, column=0, padx=10, pady=5)
+    entry_alumno = tk.Entry(ventana_datos)
+    entry_alumno.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(ventana_datos, text="Instructor:").grid(row=1, column=0, padx=10, pady=5)
+    entry_instructor = tk.Entry(ventana_datos)
+    entry_instructor.grid(row=1, column=1, padx=10, pady=5)
+
+    btn_guardar = tk.Button(ventana_datos, text="Generar PDF", command=guardar_datos_defectos)
+    btn_guardar.grid(row=2, column=0, columnspan=2, pady=10)
 
 def borrar_proyecto_ui():
     global proyecto_actual
@@ -390,10 +564,93 @@ def borrar_proyecto_ui():
         label_proyecto.config(text="Proyecto: Ninguno")
         messagebox.showinfo("Proyecto", "Proyecto borrado exitosamente.")
 
+def defecto_encontrado():
+    def guardar_defecto():
+        fecha = datetime.now().strftime("%Y-%m-%d")
+        numero = int(label_numero.cget("text"))
+        tipo = combo_tipo.get()
+        encontrado = label_encontrado.cget("text")
+        removido = combo_removido.get()
+        tiempo_de_compostura = round((time.time() - inicio_tiempo_compostura) / 60, 2)  # Convertir a minutos y limitar a 2 decimales
+        defecto_arreglado = var_defecto_arreglado.get()
+        descripcion = entry_descripcion.get("1.0", tk.END).strip()
+        proyecto_id = obtener_id_proyecto(proyecto_actual)
+
+        conn = conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO defectos (proyecto_id, fecha, numero, tipo, encontrado, removido, tiempo_de_compostura, defecto_arreglado, descripcion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (proyecto_id, fecha, numero, tipo, encontrado, removido, tiempo_de_compostura, defecto_arreglado, descripcion))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Guardado", "Defecto guardado exitosamente.")
+        ventana_defecto.destroy()
+
+    def obtener_siguiente_numero_defecto():
+        conn = conectar()
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(numero) FROM defectos")
+        max_numero = cursor.fetchone()[0]
+        conn.close()
+        return (max_numero + 1) if max_numero is not None else 1
+
+    def actualizar_tiempo_compostura():
+        tiempo_transcurrido = time.time() - inicio_tiempo_compostura
+        label_tiempo_de_compostura.config(text=f"{int(tiempo_transcurrido // 60)}:{int(tiempo_transcurrido % 60):02d}")
+        label_tiempo_de_compostura.after(1000, actualizar_tiempo_compostura)
+
+    ventana_defecto = tk.Toplevel(root)
+    ventana_defecto.title("Defecto encontrado")
+
+    tk.Label(ventana_defecto, text="Fecha:").grid(row=0, column=0, padx=10, pady=5)
+    fecha_actual = datetime.now().strftime("%Y-%m-%d")
+    label_fecha = tk.Label(ventana_defecto, text=fecha_actual)
+    label_fecha.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(ventana_defecto, text="Número:").grid(row=1, column=0, padx=10, pady=5)
+    siguiente_numero = obtener_siguiente_numero_defecto()
+    label_numero = tk.Label(ventana_defecto, text=siguiente_numero)
+    label_numero.grid(row=1, column=1, padx=10, pady=5)
+
+    tk.Label(ventana_defecto, text="Tipo:").grid(row=2, column=0, padx=10, pady=5)
+    tipos_defecto = ["Documentación", "Sintaxis", "Construcción/Empacar", "Asignación", "Interfaz", "Chequeo", "Datos", "Función", "Sistema", "Ambiente"]
+    combo_tipo = ttk.Combobox(ventana_defecto, values=tipos_defecto, state="readonly")
+    combo_tipo.grid(row=2, column=1, padx=10, pady=5)
+    combo_tipo.current(0)
+
+    tk.Label(ventana_defecto, text="Encontrado:").grid(row=3, column=0, padx=10, pady=5)
+    label_encontrado = tk.Label(ventana_defecto, text=actividad_actual)
+    label_encontrado.grid(row=3, column=1, padx=10, pady=5)
+
+    tk.Label(ventana_defecto, text="Removido:").grid(row=4, column=0, padx=10, pady=5)
+    actividades_removido = [actividad for actividad in ACTIVIDADES_PREDEFINIDAS if actividad != "Otra..."]
+    combo_removido = ttk.Combobox(ventana_defecto, values=actividades_removido, state="readonly")
+    combo_removido.grid(row=4, column=1, padx=10, pady=5)
+    combo_removido.current(0)
+
+    tk.Label(ventana_defecto, text="Tiempo de compostura:").grid(row=5, column=0, padx=10, pady=5)
+    label_tiempo_de_compostura = tk.Label(ventana_defecto, text="0:00")
+    label_tiempo_de_compostura.grid(row=5, column=1, padx=10, pady=5)
+    inicio_tiempo_compostura = time.time()
+    actualizar_tiempo_compostura()
+
+    tk.Label(ventana_defecto, text="Defecto arreglado:").grid(row=6, column=0, padx=10, pady=5)
+    var_defecto_arreglado = tk.BooleanVar()
+    tk.Checkbutton(ventana_defecto, variable=var_defecto_arreglado).grid(row=6, column=1, padx=10, pady=5)
+
+    tk.Label(ventana_defecto, text="Descripción:").grid(row=7, column=0, padx=10, pady=5)
+    entry_descripcion = tk.Text(ventana_defecto, height=5, width=40)
+    entry_descripcion.grid(row=7, column=1, padx=10, pady=5)
+
+    btn_guardar_defecto = tk.Button(ventana_defecto, text="Guardar", command=guardar_defecto)
+    btn_guardar_defecto.grid(row=8, column=0, columnspan=2, pady=10)
+
 # Crear ventana
 root = tk.Tk()
 root.title("Contador de Actividades")
-root.geometry("600x620")  # Aumentar el tamaño de la ventana
+root.geometry("600x660")  # Aumentar el tamaño de la ventana
 
 # Aplicar estilo
 style = ttk.Style()
@@ -459,14 +716,31 @@ btn_pausar = ttk.Button(frame_botones, text="Pausar", command=pausar, state=tk.D
 btn_pausar.pack(pady=5)
 btn_parar = ttk.Button(frame_botones, text="Parar", command=parar, state=tk.DISABLED)
 btn_parar.pack(pady=5)
-btn_tabla = ttk.Button(frame_botones, text="Mostrar Tabla", command=mostrar_tabla)
-btn_tabla.pack(pady=5)
+btn_defecto = tk.Button(frame_botones, text="Defecto encontrado", command=defecto_encontrado, bg="orange", fg="white", state=tk.DISABLED)
+btn_defecto.pack(pady=5)
+
+# Frame para los botones de mostrar tablas
+frame_tablas = tk.Frame(frame_botones)
+frame_tablas.pack(pady=5)
+
+btn_tabla = ttk.Button(frame_tablas, text="Mostrar Tabla de Actividades", command=mostrar_tabla)
+btn_tabla.pack(side=tk.LEFT, padx=5)
+btn_tabla_defectos = ttk.Button(frame_tablas, text="Mostrar Tabla de Defectos", command=mostrar_tabla_defectos)
+btn_tabla_defectos.pack(side=tk.LEFT, padx=5)
+
 btn_grafica = ttk.Button(frame_botones, text="Mostrar Gráfica", command=ver_grafica)
 btn_grafica.pack(pady=10)
 btn_cambiar_modo = ttk.Button(frame_botones, text="Modo Rápido", command=cambiar_modo)
 btn_cambiar_modo.pack(pady=10)
-btn_pdf = ttk.Button(frame_botones, text="Generar PDF", command=generar_reporte_pdf)
-btn_pdf.pack(pady=10)
+
+# Frame para los botones de generar PDF
+frame_pdf = tk.Frame(frame_botones)
+frame_pdf.pack(pady=10)
+
+btn_pdf = ttk.Button(frame_pdf, text="Generar PDF Actividades", command=generar_reporte_pdf)
+btn_pdf.pack(side=tk.LEFT, padx=5)
+btn_pdf_defectos = ttk.Button(frame_pdf, text="Generar PDF Defectos", command=generar_reporte_pdf_defectos)
+btn_pdf_defectos.pack(side=tk.LEFT, padx=5)
 
 # Cargar proyectos al iniciar
 actualizar_proyectos()
